@@ -1,3 +1,8 @@
 import numpy as np
+from utils.drawLine import drawLine
+from utils.shapeGenerator import generateBasicLine
 
-print(np.multiply([1,2,3],[3,2,1]))
+if __name__ == '__main__':
+    arr = generateBasicLine(10, 2,1)
+    #print(arr.T)
+    drawLine(arr)
