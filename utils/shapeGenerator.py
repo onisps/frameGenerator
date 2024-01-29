@@ -42,18 +42,18 @@ def createHex(rot_angle, lift, size, rho, type='flat'):
 
     if type.lower() == 'flat':
         height = np.sqrt(3) * size
-        thetas = np.array([a(0.5 * size), a(1.5 * size), a(2 * size),
-                           a(1.5 * size), a(0.5 * size), a(0 * size), a(0.5*size)], dtype='float32')
+        thetas = np.array([a(0.5 * size), a(1.0 * size), a(1.5 * size),
+                           a(1.0 * size), a(0.5 * size), a(0 * size), a(0.5 * size)], dtype='float32')
         rhos = np.array([rho, rho, rho, rho, rho, rho, rho], dtype='float32')
         zs = np.array([0, 0, 0.5 * height, height, height, 0.5 * height, 0], dtype='float32')
         hex = pol2cart(thetas, rhos, zs + lift)
     elif type.lower() == 'pointy':
         height = 2 * size
-        thetas = np.array([a(0, 0.5 * size), a(0, 1.5 * size), a(0.5 * height, 2 * size),
-                           a(height, 1.5 * size), a(0.5 * size), a(0.5 * height, 0)], dtype='float32')
-        rhos = np.array([rho, rho, rho, rho, rho, rho], dtype='float32')
-        zs = np.array([0, 0, 0.5 * height, height, height, 0.5 * height], dtype='float32')
-        hex = pol2cart(thetas, rhos, zs)
+        thetas = np.array(([a(0.5 * size), a(1.0 * size), a(1.0 * size),
+                            a(0.5 * size), a(0.0 * size), a(0.0 * size), a(0.5 * size)]), dtype='float32')
+        rhos = np.array([rho, rho, rho, rho, rho, rho, rho], dtype='float32')
+        zs = np.array([0, 0.25 * height, 0.75 * height, height, 0.75 * height, 0.25 * height, 0], dtype='float32')
+        hex = pol2cart(thetas, rhos, zs + lift)
 
     else:
         print(f'\tshapeGenerator::createHex > only \'flat\' or \'pointy\' are allowed. You are entered {type}')
@@ -63,22 +63,55 @@ def createHex(rot_angle, lift, size, rho, type='flat'):
     return hex
 
 
-def generateBasicLine(RAD=10, layer_count=2, size=None, hex_count=None):
+def generateBasicLine(RAD=10, layer_count=2, size=None, hex_count=None, hex_type='pointy'):
+    # flat:     1 ---- 2        | pointy:          1
+    #        /          \     h|                /   \
+    #       /       size \    e|               6     2
+    #       6      ._____3    i|               |     |
+    #       \            /    g|               5     3
+    #        \          /     h|                \   /
+    #          5 ---- 4       t|                  4
 
-    if not bool((size == None) + (hex_count == None)):
+    if not bool((size is None) + (hex_count is None)):
         print('\tshapeGenerator:generateBasicLine > one of \'size\' or \'hex_count\' sould be given')
         raise '\tshapeGenerator:generateBasicLine > one of \'size\' or \'hex_count\' sould be given'
 
-    hex_count = 21 #(2*np.pi*rho)/size
+    if hex_type.lower() == 'flat':
+        if size is None:
+            size = (2 * np.pi * RAD) / (2 * hex_count)
+        else:
+            hex_count = (2 * np.pi * RAD) / (2 * size)
+        # size = 2
+        height = np.sqrt(3) * size
+        print(f'size = {size}\nhex_count = {hex_count}\nheight = {height}')
+        hex = list()
+        for layer in range(layer_count):
+            iter_bounce = False
+            for i in range(int(2*hex_count)):
+                hex.append(np.array(
+                    createHex(rot_angle=(i * np.arctan2(size, RAD)),
+                              lift=(layer * height + int(iter_bounce) * 0.5 * height),
+                              size=size, rho=RAD, type=hex_type), dtype='float32'))
+                iter_bounce = not iter_bounce
 
-    height = np.sqrt(3) * size
-    hex = list()
-    for layer in range(layer_count):
-        iter_bounce = False
-        for i in range(int(hex_count)):
-            hex.append(np.array(
-                createHex(i * np.arctan2(1.5 * size, RAD), layer * height + int(iter_bounce) * size, size, RAD),
-                dtype='float32'))
-            iter_bounce = not iter_bounce
+    elif hex_type.lower() == 'pointy':
+        if size is None:
+            size = (2 * np.pi * RAD) / (1 * hex_count)
+        else:
+            hex_count = (2 * np.pi * RAD) / size
+        height = 2 * size
+        print(f'size = {size}\nhex_count = {hex_count}\nheight = {height}')
+        hex = list()
+        for layer in range(layer_count):
+            iter_bounce = False
+            for i in range(int(2 * hex_count)):
+                hex.append(np.array(
+                    createHex(rot_angle=(i * np.arctan2(0.5 * size, RAD)),
+                              lift=(layer * 1.5 * height + int(iter_bounce) * 0.75 * height),
+                              size=size, rho=RAD, type=hex_type), dtype='float32'))
+                iter_bounce = not iter_bounce
+    else:
+        print(f'\tshapeGenerator::generateBasicLine > only \'flat\' or \'pointy\' are allowed. You are entered {type}')
+        raise f'\tshapeGenerator::generateBasicLine > only \'flat\' or \'pointy\' are allowed. You are entered {type}'
 
     return hex
