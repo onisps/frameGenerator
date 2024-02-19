@@ -12,8 +12,8 @@ def drawLine(arr):
     ax.set_ylabel('y')
     ax.set_zlabel('z')
 
-    ax.set_xlim(-10, 10)
-    ax.set_ylim(-10, 10)
-    ax.set_zlim(-1, 10)
+    ax.set_xlim(-15, 15)
+    ax.set_ylim(-15, 15)
+    ax.set_zlim(-1, 15)
 
     plt.show()

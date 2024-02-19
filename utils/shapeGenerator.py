@@ -36,6 +36,32 @@ def rotate(arr, theta, rot_axis='z'):
     return np.dot(mat, arr)
 
 
+def calculate_normal_vectors(points):
+    # Calculate the tangent vectors for each point
+    tangents = np.diff(points, axis=0)
+    # Normalize the tangent vectors to get the direction vectors
+    directions = tangents / np.linalg.norm(tangents, axis=1)[:, np.newaxis]
+    # Calculate the normal vectors by rotating the direction vectors 90 degrees
+    normals = np.zeros_like(points)
+
+    normals[1:-1] = np.cross(directions[:-1], directions[1:])  # Cross product for inner points
+    normals[0] = np.cross(directions[0], directions[0] - directions[1])  # Special case for first point
+    normals[-1] = np.cross(directions[-1], directions[-1] - directions[-2])  # Special case for last point
+    return normals
+
+
+def create_offset(points, thickness):
+    # Calculate the normal vectors for each point
+    normals = calculate_normal_vectors(points)
+    # Normalize the normal vectors
+    unit_normals = normals / np.linalg.norm(normals, axis=1)[:, np.newaxis]
+    # Scale the normal vectors by the thickness
+    offset_vectors = unit_normals * thickness
+    # Add the offset vectors to the original points to create the offset
+    offset_points = points + offset_vectors
+    return offset_points
+
+
 def createHex(rot_angle, lift, size, rho, type='flat'):
     def a(val2):
         return np.arctan2(rho, val2)
@@ -64,7 +90,7 @@ def createHex(rot_angle, lift, size, rho, type='flat'):
 
 
 def generateBasicLine(RAD=10, layer_count=2, size=None, hex_count=None, hex_type='pointy'):
-    # flat:     1 ---- 2        | pointy:          1
+    # flat:    1 ---- 2        | pointy:         1
     #        /          \     h|                /   \
     #       /       size \    e|               6     2
     #       6      ._____3    i|               |     |
@@ -87,7 +113,7 @@ def generateBasicLine(RAD=10, layer_count=2, size=None, hex_count=None, hex_type
         hex = list()
         for layer in range(layer_count):
             iter_bounce = False
-            for i in range(int(2*hex_count)):
+            for i in range(int(2 * hex_count)):
                 hex.append(np.array(
                     createHex(rot_angle=(i * np.arctan2(size, RAD)),
                               lift=(layer * height + int(iter_bounce) * 0.5 * height),
@@ -115,3 +141,13 @@ def generateBasicLine(RAD=10, layer_count=2, size=None, hex_count=None, hex_type
         raise f'\tshapeGenerator::generateBasicLine > only \'flat\' or \'pointy\' are allowed. You are entered {type}'
 
     return hex
+
+
+def generateSplineShape(RAD=10):
+    line = np.array(pol2cart([0, 0, 0, 0], [RAD, RAD, RAD, RAD], [0, 2, 5, 10]), dtype='float32').T
+    thickness = 1
+    arr = list()
+    arr.append(line)
+    arr.append(create_offset(line, thickness))
+
+    return arr
