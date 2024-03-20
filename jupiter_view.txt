@@ -1,7 +1,6 @@
-1. start: jupiter lab
-2. start: jcv
-3. copy http:\\... from console and paste to browser
-4. in IDE:
+1. start: jcv
+2. copy http:\\... from console and paste to browser
+3. in IDE:
 
 from jupyter_cadquery.viewer.client import show, show_object
 ...
