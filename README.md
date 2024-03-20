@@ -1,7 +1,7 @@
-[ ] Frame generator parametrisation
-[x] Frame export with .STEP
-[x] Abaqus import STEP
-[x] Abaqus create .inp and\or cae
-[ ] Abaqus script optimisation
-[ ] Connect parameters between frame generation and abaqus script (prob json/xml/txt)
-[ ] Some sort of optimisator
+- [ ] Frame generator parametrisation
+- [x] Frame export with .STEP
+- [x] Abaqus import STEP
+- [x] Abaqus create .inp and\or cae
+- [ ] Abaqus script optimisation
+- [ ] Connect parameters between frame generation and abaqus script (prob json/xml/txt)
+- [ ] Some sort of optimisator
