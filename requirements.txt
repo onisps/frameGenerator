@@ -1,5 +1,5 @@
 abqpy==2024.7.0
-cadquery==2.5.0.dev0
+cadquery==2.4.0
 jupyter_cadquery==3.5.2
 matplotlib==3.8.0
 numpy==1.26.4
