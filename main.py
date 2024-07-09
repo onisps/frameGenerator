@@ -9,6 +9,6 @@ if __name__ == '__main__':
 # arr = generateSplineShape(RAD=10)
 # print(arr.T)
 # drawLine(arr)
-    model_drawer(repeat=6)
+    model_drawer(repeat=12)
     # con()
 
