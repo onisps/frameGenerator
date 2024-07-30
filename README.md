@@ -1,4 +1,4 @@
-- [ ] Frame generator parametrisation
+- [x] Frame generator parametrisation
 - [x] Frame export with .STEP
 - [x] Abaqus import STEP
 - [x] Abaqus create .inp and\or cae
