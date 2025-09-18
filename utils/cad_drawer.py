@@ -1,8 +1,11 @@
+import os
+from os.path import exists
+from types import SimpleNamespace
+
 import cadquery as cq
 import numpy as np
-from jupyter_cadquery.viewer.client import show, show_object
-import matplotlib.colors as mcolors
-import time
+#from jupyter_cadquery.viewer.client import show, show_object
+from typing import Union
 
 
 def create_cell(w, h1, h2, h3, l1, l2, arc_offset, offset_l, fillet_a, fillet_b, fillet_c):
@@ -136,216 +139,223 @@ def create_cell(w, h1, h2, h3, l1, l2, arc_offset, offset_l, fillet_a, fillet_b,
     else:
         return create_cell_no_arc()
 
+def _as_shape(obj) -> cq.Shape:
+    """Безопасно извлечь cq.Shape из Workplane/Shape."""
+    if isinstance(obj, cq.Workplane):
+        # если внутри один солид — .solids().val()
+        sols = obj.solids()
+        if len(sols.objects) > 0:
+            return sols.val()
+        # иначе пробуем склеить и взять единственный shape
+        return obj.combineSolids().val()
+    return obj  # уже Shape/Compound
 
-def model_drawer(
-        h1=0.3,
-        h2=1,
-        h3=0.3,
-        h2_3rd_layer=4,
-        width_low_cut=0.5,
-        cell_height_1st_layer=7,
-        repeat=12,
-        fillet_a=0.02,
-        fillet_b=0.3,
-        fillet_c=0.4,
-        assymetry_1st_layer=0.5,
-        padding=0.5,
-        arc_offset=0.1
-):
-    diameter = 29
+def _radial_compound(base: Union[cq.Workplane, cq.Shape, cq.Compound], count: int, step_deg: float) -> cq.Compound:
+    """Быстрый радиальный паттерн из копий base (Shape)."""
+    base = _as_shape(base)
+    copies = [base.rotate((0, 0, 0), (0, 0, 1), i * step_deg) for i in range(count)]
+    return cq.Compound.makeCompound(copies)
+
+
+def model_drawer(local_geometry_cfg, file_name) -> float:
+    # -*-*- parce cfg -*-*-
+    local_geometry_cfg = SimpleNamespace(**local_geometry_cfg)
+    diameter = local_geometry_cfg.diameter
+    h1 = local_geometry_cfg.h1
+    h2 = local_geometry_cfg.h2
+    h3 = local_geometry_cfg.h3
+    h2_3rd_layer = local_geometry_cfg.h2_3rd_layer
+    width_low_cut = local_geometry_cfg.width_low_cut
+    cell_height_1st_layer =local_geometry_cfg.cell_height_1st_layer
+    repeat =local_geometry_cfg.repeat
+    fillet_a =local_geometry_cfg.fillet_a
+    fillet_b =local_geometry_cfg.fillet_b
+    fillet_c =local_geometry_cfg.fillet_c
+    assymetry_1st_layer =local_geometry_cfg.assymetry_1st_layer
+    padding = local_geometry_cfg.padding
+    arc_offset = local_geometry_cfg.arc_offset
+
     # calc size of cell
     circle_length = 2 * np.pi * diameter / 2
     cell_size_width = (circle_length) / repeat - 3 * padding
-    for assymetry_1st_layer in [0.5, 1.0, 1.5]:
-        for arc_offset in [0.30, 0.15, 0, -0.15, -0.3]:
-            length_1 = np.round((cell_height_1st_layer - (h1 + h2 + h3)) / 2 * assymetry_1st_layer, 4)
-            length_2 = np.round((cell_height_1st_layer - (h1 + h2 + h3)) - length_1, 4)
-            print(
-                f'ass > {assymetry_1st_layer} | l1 > {length_1} | l2 > {length_2} | summ: {h1 + h2 + h3 + length_1 + length_2} | ',
-                end='')
-            tri_a = 0.5 * (cell_size_width - width_low_cut)
 
-            # draw cell
-            s_low_cut, cell_size_low_cut, _, arc_line_low_cut, d_point_low_cut, c_point_low_cut = create_cell(
-                width_low_cut, h1, 5 * h2, h3,
-                length_1, length_2,
-                0,
-                tri_a, fillet_a, fillet_b,
-                fillet_c)
+    length_1 = np.round((cell_height_1st_layer - (h1 + h2 + h3)) / 2 * assymetry_1st_layer, 4)
+    length_2 = np.round((cell_height_1st_layer - (h1 + h2 + h3)) - length_1, 4)
+    tri_a = 0.5 * (cell_size_width - width_low_cut)
 
-            s_1st_layer, _, _, arc_line_1st_layer, _, _ = create_cell(
-                width_low_cut, h1, h2, h3,
-                length_1, length_2,
-                arc_offset,
-                tri_a, fillet_a, fillet_b, fillet_c)
+    # draw cell
+    s_low_cut, cell_size_low_cut, _, arc_line_low_cut, d_point_low_cut, c_point_low_cut = create_cell(
+        width_low_cut, h1, 5 * h2, h3,
+        length_1, length_2,
+        0,
+        tri_a, fillet_a, fillet_b,
+        fillet_c)
 
-            s_2nd_layer, cell_size_2nd_layer, _, arc_line_2nd_layer, _, _ = create_cell(
-                width_low_cut, h1, h2, h1,
-                length_1, length_1,
-                arc_offset,
-                tri_a, fillet_a, fillet_b, fillet_c)
+    s_1st_layer, _, _, arc_line_1st_layer, _, _ = create_cell(
+        width_low_cut, h1, h2, h3,
+        length_1, length_2,
+        arc_offset,
+        tri_a, fillet_a, fillet_b, fillet_c)
 
-            s_3rd_layer, cell_size_3rd_layer, _, _, d_point_3rd_layer, _ = create_cell(
-                width_low_cut, h1, h2_3rd_layer, h1,
-                length_1, length_1,
-                arc_offset,
-                tri_a, fillet_a, fillet_b, fillet_c)
-            s_top_cut, cell_size_top_cut, _, _, d_point_top_cut, _ = create_cell(
-                width_low_cut, h1, 5 * h2, h3,
-                length_1, length_2,
-                0,
-                tri_a, fillet_a, fillet_b,
-                fillet_c)
-            radius = diameter / 2
-            if assymetry_1st_layer < 1:
-                height_1st_layer = cell_height_1st_layer + arc_line_1st_layer + 2 * padding
-                direct_shift = (0, radius, -height_1st_layer / 2 + 0.75 * padding)
-                inversed_shift = (0, radius, -height_1st_layer / 2 + 0.75 * padding)
-                direct_shift_2nd_layer = (0, radius, -height_1st_layer / 2 + cell_height_1st_layer + 1.75 * padding)
-                direct_shift_3rd_layer = (
-                    0,
-                    radius,
-                    -height_1st_layer / 2 + cell_height_1st_layer + arc_line_2nd_layer + 2.5 * padding
-                )
-                direct_low_cut = (0, radius, -height_1st_layer / 2 + h1 + length_1 + padding)
-                direct_top_cut = (0, 0, arc_line_2nd_layer + d_point_3rd_layer + 0.5 * padding)
-            elif assymetry_1st_layer == 1:
-                height_1st_layer = cell_height_1st_layer + arc_line_1st_layer + 2 * padding
-                direct_shift = (0, radius, -height_1st_layer / 2 + 0.75 * padding)
-                inversed_shift = (0, radius, -height_1st_layer / 2 + 0.75 * padding)
-                direct_shift_2nd_layer = (0, radius, -height_1st_layer / 2 + cell_height_1st_layer + 1.75 * padding)
-                direct_shift_3rd_layer = (
-                    0,
-                    radius,
-                    -height_1st_layer / 2 + cell_height_1st_layer + arc_line_2nd_layer + 3 * padding
-                )
-                direct_low_cut = (0, radius, -height_1st_layer / 2 + h1 + length_1 + padding)
-                direct_top_cut = (0, 0, arc_line_2nd_layer + d_point_3rd_layer + padding)
-            else:
-                height_1st_layer = cell_height_1st_layer + (cell_height_1st_layer - arc_line_1st_layer) + 2.5 * padding
-                direct_shift = (0, radius, -height_1st_layer / 2 + padding)
-                inversed_shift = (0, radius, -cell_height_1st_layer + 1.75 * padding)
-                direct_shift_2nd_layer = (0, radius, -height_1st_layer / 2 + cell_height_1st_layer + 2 * padding)
-                direct_shift_3rd_layer = (
-                    0,
-                    radius,
-                    -height_1st_layer / 2 + cell_height_1st_layer + arc_line_2nd_layer + 3 * padding
-                )
-                direct_low_cut = (0, radius, -(cell_size_low_cut - d_point_low_cut))
-                direct_top_cut = (0, 0, arc_line_2nd_layer + d_point_3rd_layer + padding)
-            height_2nd_layer = arc_line_2nd_layer
-            height_3rd_layer = d_point_3rd_layer + 0.5 * padding
-            height = height_1st_layer + height_2nd_layer + height_3rd_layer
-            print(f'total height > {height} | cell height > {cell_height_1st_layer}')
+    s_2nd_layer, cell_size_2nd_layer, _, arc_line_2nd_layer, _, _ = create_cell(
+        width_low_cut, h1, h2, h1,
+        length_1, length_1,
+        arc_offset,
+        tri_a, fillet_a, fillet_b, fillet_c)
 
-            cyl_out = cq.Workplane('XY').cylinder(height=height, radius=radius, direct=cq.Vector((0, 0, 1)))
-            cyl_cut = cq.Workplane('XY').cylinder(height=height, radius=radius - 0.5, direct=cq.Vector((0, 0, 1)))
-            cyl = cyl_out.cut(cyl_cut).translate((0, 0, (height - height_1st_layer) / 2))
-            # mesh = cq.Workplane('XY')
-            mesh_sketch = cq.Workplane('XY')
+    s_3rd_layer, cell_size_3rd_layer, _, _, d_point_3rd_layer, _ = create_cell(
+        width_low_cut, h1, h2_3rd_layer, h1,
+        length_1, length_1,
+        arc_offset,
+        tri_a, fillet_a, fillet_b, fillet_c)
+    s_top_cut, cell_size_top_cut, _, _, d_point_top_cut, _ = create_cell(
+        width_low_cut, h1, 5 * h2, h3,
+        length_1, length_2,
+        0,
+        tri_a, fillet_a, fillet_b,
+        fillet_c)
+    radius = diameter / 2
+    if assymetry_1st_layer < 1:
+        height_1st_layer = cell_height_1st_layer + arc_line_1st_layer + 2 * padding
+        direct_shift = (0, radius, -height_1st_layer / 2 + 0.75 * padding)
+        inversed_shift = (0, radius, -height_1st_layer / 2 + 0.75 * padding)
+        direct_shift_2nd_layer = (0, radius, -height_1st_layer / 2 + cell_height_1st_layer + 1.75 * padding)
+        direct_shift_3rd_layer = (
+            0,
+            radius,
+            -height_1st_layer / 2 + cell_height_1st_layer + arc_line_2nd_layer + 2.5 * padding
+        )
+        direct_low_cut = (0, radius, -height_1st_layer / 2 + h1 + length_1 + padding)
+        direct_top_cut = (0, 0, arc_line_2nd_layer + d_point_3rd_layer + 0.5 * padding)
+    elif assymetry_1st_layer == 1:
+        height_1st_layer = cell_height_1st_layer + arc_line_1st_layer + 2 * padding
+        direct_shift = (0, radius, -height_1st_layer / 2 + 0.75 * padding)
+        inversed_shift = (0, radius, -height_1st_layer / 2 + 0.75 * padding)
+        direct_shift_2nd_layer = (0, radius, -height_1st_layer / 2 + cell_height_1st_layer + 1.75 * padding)
+        direct_shift_3rd_layer = (
+            0,
+            radius,
+            -height_1st_layer / 2 + cell_height_1st_layer + arc_line_2nd_layer + 3 * padding
+        )
+        direct_low_cut = (0, radius, -height_1st_layer / 2 + h1 + length_1 + padding)
+        direct_top_cut = (0, 0, arc_line_2nd_layer + d_point_3rd_layer + padding)
+    else:
+        height_1st_layer = cell_height_1st_layer + (cell_height_1st_layer - arc_line_1st_layer) + 2.5 * padding
+        direct_shift = (0, radius, -height_1st_layer / 2 + padding)
+        inversed_shift = (0, radius, -cell_height_1st_layer + 1.75 * padding)
+        direct_shift_2nd_layer = (0, radius, -height_1st_layer / 2 + cell_height_1st_layer + 2 * padding)
+        direct_shift_3rd_layer = (
+            0,
+            radius,
+            -height_1st_layer / 2 + cell_height_1st_layer + arc_line_2nd_layer + 3 * padding
+        )
+        direct_low_cut = (0, radius, -(cell_size_low_cut - d_point_low_cut))
+        direct_top_cut = (0, 0, arc_line_2nd_layer + d_point_3rd_layer + padding)
+    height_2nd_layer = arc_line_2nd_layer
+    height_3rd_layer = d_point_3rd_layer + 0.5 * padding
+    height = height_1st_layer + height_2nd_layer + height_3rd_layer
 
-            rot = 360 / repeat
-            mesh_low_cut = (
-                cq.Workplane('XY')
-                .workplane()
-                .placeSketch(s_low_cut)
-                .extrude(2)
-                .rotate((0, 0, 0), (1, 0, 0), 90)
-                .rotate((0, 0, 0), (0, 1, 0), 180)
-                .translate(direct_low_cut)
-                .rotate((0, 0, 0), (0, 0, 1), rot / 2)
-            )
 
-            mesh = (
-                mesh_sketch.union(
-                    mesh_sketch
-                    .workplane()
-                    .placeSketch(s_1st_layer)
-                    .extrude(2)
-                    .rotate((0, 0, 0), (1, 0, 0), 90)
-                    .translate(direct_shift)
+    cyl_out = cq.Workplane('XY').cylinder(height=height, radius=radius, direct=cq.Vector((0, 0, 1)))
+    cyl_cut = cq.Workplane('XY').cylinder(height=height, radius=radius - 0.5, direct=cq.Vector((0, 0, 1)))
+    cyl = cyl_out.cut(cyl_cut).translate((0, 0, (height - height_1st_layer) / 2))
+    mesh_sketch = cq.Workplane('XY')
 
-                )
-            )
+    rot = 360 / repeat
+    mesh_low_cut = (
+        cq.Workplane('XY')
+        .workplane()
+        .placeSketch(s_low_cut)
+        .extrude(2)
+        .rotate((0, 0, 0), (1, 0, 0), 90)
+        .rotate((0, 0, 0), (0, 1, 0), 180)
+        .translate(direct_low_cut)
+        .rotate((0, 0, 0), (0, 0, 1), rot / 2)
+    )
 
-            mesh_inversed = (
-                mesh_sketch.union(
-                    mesh_sketch
-                    .workplane()
-                    .placeSketch(s_1st_layer)
-                    .extrude(2)
-                    .rotate((0, 0, 0), (1, 0, 0), 90)
-                    .translate(inversed_shift)
-                    .rotate((0, 0, 0), (0, 1, 0), 180)
-                    .rotate((0, 0, 0), (0, 0, 1), rot / 2)
-                )
-            )
+    mesh = (
+        mesh_sketch.union(
+            mesh_sketch
+            .workplane()
+            .placeSketch(s_1st_layer)
+            .extrude(2)
+            .rotate((0, 0, 0), (1, 0, 0), 90)
+            .translate(direct_shift)
 
-            mesh_2nd_layer = (
-                mesh_sketch.union(
-                    mesh_sketch
-                    .workplane()
-                    .placeSketch(s_2nd_layer)
-                    .extrude(2)
-                    .rotate((0, 0, 0), (1, 0, 0), 90)
-                    .translate(direct_shift_2nd_layer)
-                )
-            )
+        )
+    )
 
-            mesh_3rd_layer = (
-                mesh_sketch.union(
-                    mesh_sketch
-                    .workplane()
-                    .placeSketch(s_3rd_layer)
-                    .extrude(2)
-                    .rotate((0, 0, 0), (1, 0, 0), 90)
-                    .translate(direct_shift_3rd_layer)
-                    .rotate((0, 0, 0), (0, 0, 1), rot / 2)
-                )
-            )
-            mesh_top_cut = (
-                mesh_sketch.union(
-                    mesh_sketch
-                    .workplane()
-                    .placeSketch(s_top_cut)
-                    .extrude(2)
-                    .rotate((0, 0, 0), (1, 0, 0), 90)
-                    .translate(direct_shift_2nd_layer)
-                    .translate(direct_top_cut)
-                )
-            )
-            # show(cyl, mesh, mesh_inversed, mesh_low_cut, mesh_2nd_layer, mesh_3rd_layer, mesh_top_cut)
-            # continue
+    mesh_inversed = (
+        mesh_sketch.union(
+            mesh_sketch
+            .workplane()
+            .placeSketch(s_1st_layer)
+            .extrude(2)
+            .rotate((0, 0, 0), (1, 0, 0), 90)
+            .translate(inversed_shift)
+            .rotate((0, 0, 0), (0, 1, 0), 180)
+            .rotate((0, 0, 0), (0, 0, 1), rot / 2)
+        )
+    )
 
-            mesh_pattern = mesh
-            mesh_pattern_inv = mesh_inversed
-            for i in range(int(repeat)):
-                mesh_pattern = mesh_pattern.union(
-                    mesh_pattern.rotate((0, 0, 0), (0, 0, 1), i * rot)
-                )
-                mesh_pattern_inv = mesh_pattern_inv.union(
-                    mesh_pattern_inv.rotate((0, 0, 0), (0, 0, 1), i * rot)
-                )
-                mesh_low_cut = mesh_low_cut.union(
-                    mesh_low_cut.rotate((0, 0, 0), (0, 0, 1), i * rot)
-                )
-                mesh_2nd_layer = mesh_2nd_layer.union(
-                    mesh_2nd_layer.rotate((0, 0, 0), (0, 0, 1), i * rot)
-                )
-                mesh_3rd_layer = mesh_3rd_layer.union(
-                    mesh_3rd_layer.rotate((0, 0, 0), (0, 0, 1), i * rot)
-                )
-                mesh_top_cut = mesh_top_cut.union(
-                    mesh_top_cut.rotate((0, 0, 0), (0, 0, 1), i * rot)
-                )
-            cyl = (
-                cyl.cut(mesh_pattern_inv)
-                .cut(mesh_pattern)
-                .cut(mesh_low_cut)
-                .cut(mesh_2nd_layer)
-                .cut(mesh_3rd_layer)
-                .cut(mesh_top_cut)
-            )
-            show(cyl)
-        # time.sleep(15)
-            cq.exporters.export(cyl, f'./geoms/full_frame_arc_{arc_offset}_ass_{assymetry_1st_layer}.stp', 'STEP')
+    mesh_2nd_layer = (
+        mesh_sketch.union(
+            mesh_sketch
+            .workplane()
+            .placeSketch(s_2nd_layer)
+            .extrude(2)
+            .rotate((0, 0, 0), (1, 0, 0), 90)
+            .translate(direct_shift_2nd_layer)
+        )
+    )
+
+    mesh_3rd_layer = (
+        mesh_sketch.union(
+            mesh_sketch
+            .workplane()
+            .placeSketch(s_3rd_layer)
+            .extrude(2)
+            .rotate((0, 0, 0), (1, 0, 0), 90)
+            .translate(direct_shift_3rd_layer)
+            .rotate((0, 0, 0), (0, 0, 1), rot / 2)
+        )
+    )
+    mesh_top_cut = (
+        mesh_sketch.union(
+            mesh_sketch
+            .workplane()
+            .placeSketch(s_top_cut)
+            .extrude(2)
+            .rotate((0, 0, 0), (1, 0, 0), 90)
+            .translate(direct_shift_2nd_layer)
+            .translate(direct_top_cut)
+        )
+    )
+    # show(cyl, mesh, mesh_inversed, mesh_low_cut, mesh_2nd_layer, mesh_3rd_layer, mesh_top_cut)
+    # continue
+
+    mesh_pattern = mesh
+    mesh_pattern_inv = mesh_inversed
+
+
+    mesh_pattern = _radial_compound(mesh_pattern, repeat, rot)
+    mesh_pattern_inv = _radial_compound(mesh_pattern_inv, repeat, rot)
+    mesh_low_cut = _radial_compound(mesh_low_cut, repeat, rot)
+    mesh_2nd_layer = _radial_compound(mesh_2nd_layer, repeat, rot)
+    mesh_3rd_layer = _radial_compound(mesh_3rd_layer, repeat, rot)
+    mesh_top_cut = _radial_compound(mesh_top_cut, repeat, rot)
+
+    all_cuts = cq.Compound.makeCompound(
+        [mesh_pattern_inv, mesh_pattern, mesh_low_cut, mesh_2nd_layer, mesh_3rd_layer, mesh_top_cut]
+    )
+    result = cyl.cut(all_cuts)
+    # show(all_cuts, result)
+# time.sleep(15)
+#     bbox = _as_shape(result).BoundingBox()
+    # print(f'bbox is: [({bbox.xmin}, {bbox.ymin}, {bbox.zmin}), ({bbox.xmax}, {bbox.ymax}, {bbox.zmax})]')
+    os.makedirs('geoms',exist_ok=True)
+    if result.solids().size() > 1:
+        raise Exception(f'Fail in model generation. With this parameters get {result.solids().size()}')
+    cq.exporters.export(result, f'./geoms/{file_name}.stp', 'STEP')
+
+    return height

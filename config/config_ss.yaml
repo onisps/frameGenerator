@@ -1,0 +1,41 @@
+paths:
+  work_root: "abaqusWF"
+  results_root: "results"
+problem:
+  parameters: ['h1', 'h2', 'h3', 'h2_3rd_layer', 'cell_height_1st_layer', 'assymetry_1st_layer', 'arc_offset']
+  objectives: ['']
+geometry:
+  diameter: 26.0
+  h1: [0.1, 1]
+  h2: [0.1, 1]
+  h3: [0.1, 1]
+  h2_3rd_layer: [1, 6]
+  width_low_cut: 0.5
+  cell_height_1st_layer: [1, 10]
+  repeat: 12
+  fillet_a: 0
+  fillet_b: 0
+  fillet_c: 0
+  assymetry_1st_layer: [0, 1]
+  padding: 0.5
+  arc_offset: [-1, 1]
+material:
+  name: "SS"
+  EM: 233000.0
+  Poisson: 0.3
+  material_model: 'polynomial'
+  density: 7.98e-9
+  mat_table: [[414, 0],[933, 0.45]]
+solver:
+  job_name_prefix: "tavr_case"
+  step_name: "Step-Load"
+  step_time: 1
+  cpus: 8
+  outputs:
+    field_outputs: ["S", "U", "LE"]
+    time_interval: 0.025
+    history_outputs: []
+    frame_index_for_metric: last
+hydra:
+  run:
+    dir: .
