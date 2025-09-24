@@ -3,7 +3,9 @@ from __future__ import annotations
 import os, glob
 import sys
 import random
+import time, datetime
 from pathlib import Path
+from pyexpat.errors import messages
 
 import hydra
 from omegaconf import DictConfig
@@ -12,11 +14,12 @@ import numpy as np
 from utils.config_utils import read_conf
 from utils.cad_drawer import model_drawer
 from utils.abq_connector import connector_console
+from utils.abq_solving_utils import run_solver, parce_results, process_results
 
 config_name = 'config_ss'
 globalPath = str(Path.cwd())
 round_decimals = 4
-random.seed(1)
+random.seed(10)
 
 def _get_random_value(low: float, top: float) -> float:
     return np.round(random.uniform(low, top), round_decimals)
@@ -61,14 +64,31 @@ def main(cfg: DictConfig):
         for file in glob.glob(f'./{solver_cfg.work_root}/abaqus*'):
             os.remove(path=file)
         #configure .cae and inp
-        connector_console(geometry_cfg.diameter, length,
+        rc = connector_console(curr_geometry_cfg, length,
                           material_model, material_cfg, solver_cfg, solver_cfg.work_root,
-                          'abaqus', os.path.join(globalPath,'utils','abq_cae_compiler_explicit.py'),
-                          os.path.join(globalPath, solver_cfg.work_root,'config.json'))
-
+                          'abaqus',
+                          # os.path.join(globalPath,'utils','abq_cae_compiler_explicit.py'),
+                          os.path.join(globalPath,'utils','abq_cae_compiler_standard_small_part.py'),
+                          os.path.join(globalPath, solver_cfg.work_root,'config.json'),
+                          os.getcwd())
+        if rc != 0:
+            continue
         _print_parameters(curr_geometry_cfg)
-        first_done = True
+        # return
 
+
+        t0 = datetime.datetime.now()
+        message, last_frame_time = run_solver(solver_cfg, solver_cfg.work_root, 'abaqus', globalPath)
+        print(f'[solver] get message: {message}. Last frame step: {last_frame_time}. '
+              f'Costed time: {datetime.datetime.now() - t0}')
+
+        parce_results(solver_cfg,'abaqus', os.path.join(globalPath, solver_cfg.work_root,'config.json'))
+
+        process_results(
+            cfg = solver_cfg,
+            work_path = os.path.join(globalPath, solver_cfg.work_root)
+        )
+        first_done = True
 
 if __name__ == "__main__":
     main()

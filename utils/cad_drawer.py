@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import cadquery as cq
 import numpy as np
-#from jupyter_cadquery.viewer.client import show, show_object
+from jupyter_cadquery.viewer.client import show, show_object
 from typing import Union
-
+import math
 
 def create_cell(w, h1, h2, h3, l1, l2, arc_offset, offset_l, fillet_a, fillet_b, fillet_c):
     def create_cell_no_arc():
@@ -356,6 +356,51 @@ def model_drawer(local_geometry_cfg, file_name) -> float:
     os.makedirs('geoms',exist_ok=True)
     if result.solids().size() > 1:
         raise Exception(f'Fail in model generation. With this parameters get {result.solids().size()}')
-    cq.exporters.export(result, f'./geoms/{file_name}.stp', 'STEP')
+    cq.exporters.export(result, f'./geoms/{file_name}_full.stp', 'STEP')
+
+    # ---- функция получения сектора ----
+    def sector_of_cyl(solid: cq.Workplane,
+                      outer_radius: float,
+                      repeat: int,
+                      start_angle_deg: float = 0.0) -> cq.Workplane:
+        """
+        Возвращает сектор исходного тела 'solid' с центральным углом 360/repeat,
+        начиная от направления 'start_angle_deg' (в градусах, 0 по оси +X).
+        Техника: строим 2D сектор на плоскости XY и делаем пересечение (intersect).
+        """
+        if repeat <= 0:
+            raise ValueError("repeat должен быть положительным целым числом")
+        theta = 360.0 / float(repeat)
+
+        # Радиус эскиза сектора выбираем чуть больше внешнего радиуса,
+        # чтобы маска гарантированно покрывала сечение цилиндра.
+        R = outer_radius + 5.0
+
+        # Конечная точка дуги сектора в декартовых координатах
+        end_x = R * math.cos(math.radians(start_angle_deg + theta))
+        end_y = R * math.sin(math.radians(start_angle_deg + theta))
+
+        # Строим «пирог» (круговой сектор) на XY:
+        # из центра -> по радиусу на угол start -> дуга на угол theta -> назад в центр.
+        # Используем radiusArc, чтобы получить дугу заданного радиуса R.
+        sector_wire = (
+            cq.Workplane("XY")
+            .moveTo(0, 0)
+            .lineTo(R * math.cos(math.radians(start_angle_deg)),
+                    R * math.sin(math.radians(start_angle_deg)))
+            .radiusArc((end_x, end_y), R)
+            .lineTo(0, 0)
+            .close()
+        )
+
+        # Выдавливаем сектор симметрично по Z, чтобы наверняка перекрыть исходное тело
+        # (extrude(..., both=True) — симметричная экструзия).
+        sector_prism = sector_wire.extrude(2.0 * max(1.0, solid.val().BoundingBox().zlen), both=True)
+
+        # Пересечение маски с исходным телом
+        return sector_prism.intersect(solid)
+    result_sector = sector_of_cyl(result, outer_radius=radius, repeat=repeat, start_angle_deg=0.0)
+    # show(result_sector)
+    cq.exporters.export(result_sector, f'./geoms/{file_name}.stp', 'STEP')
 
     return height

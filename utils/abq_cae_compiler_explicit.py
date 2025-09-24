@@ -50,7 +50,7 @@ def connector(
 
     # import frame from STEP
     geom_file = mdb.openStep(fileName=str('../geoms/'+solver_cfg.job_name_prefix+'.stp'))
-    part2 = model.PartFromGeometryFile(name='frame', geometryFile=geom_file, dimensionality=THREE_D, type=DEFORMABLE_BODY)
+    part2 = model.PartFromGeometryFile(name='FRAME', geometryFile=geom_file, dimensionality=THREE_D, type=DEFORMABLE_BODY)
 
     ## Mesh balloon
     # set elem type
@@ -160,7 +160,7 @@ def connector(
 
     # create assembly
     model.rootAssembly.Instance(name='balloon', part=part, dependent=ON).translate(vector=(0, 0, -frame_length))
-    model.rootAssembly.Instance(name='frame', part=part2, dependent=ON)
+    model.rootAssembly.Instance(name='FRAME', part=part2, dependent=ON)
 
     # Material
 
@@ -240,9 +240,9 @@ def connector(
                          region=expanding_disp, u1=-(balloon_rad - 3), u2=0, u3=0)
 
     ## interaction
-    set_frame = model.rootAssembly.instances['frame'].surfaces['surface-contact']
+    set_frame = model.rootAssembly.instances['FRAME'].surfaces['surface-contact']
     set_balloon = model.rootAssembly.instances['balloon'].surfaces['surface-contact']
-    set_frame_self_contact = model.rootAssembly.instances['frame'].surfaces['self-contact']
+    set_frame_self_contact = model.rootAssembly.instances['FRAME'].surfaces['self-contact']
     prop = model.ContactProperty(name='InterProp')
     prop.TangentialBehavior(formulation=PENALTY, table=((0.2,),), fraction=0.005, )
     prop.NormalBehavior(pressureOverclosure=HARD, )

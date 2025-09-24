@@ -148,6 +148,12 @@ def read_conf(cfg:DictConfig, globalPath: str = None) -> tuple[list[str], list[s
         else:
             print('No attr \'geometry.arc_offset\'. Set default = 0.1 mm')
             geometry_cfg.arc_offset = 0.5
+
+        if hasattr(cfg.geometry, 'thk'):
+            geometry_cfg.thk = cfg.geometry.thk
+        else:
+            print('No attr \'geometry.thk\'. Set default = 0.5 mm')
+            geometry_cfg.thk = 0.5
     else:
         print('No attr \'geometry\'. Exit')
         error_count += 1
@@ -246,11 +252,11 @@ def read_conf(cfg:DictConfig, globalPath: str = None) -> tuple[list[str], list[s
                 print('No attr \'solver.outputs.time_interval\'. Set default - 10 per Step Time')
                 solver_cfg.outputs.field_outputs = solver_cfg.step_time / 10
 
-            if hasattr(cfg.solver.outputs, 'frame_index_for_metric'):
-                solver_cfg.outputs.frame_index_for_metric = cfg.solver.outputs.frame_index_for_metric
+            if hasattr(cfg.solver.outputs, 'frame_time_for_metric'):
+                solver_cfg.outputs.frame_time_for_metric = cfg.solver.outputs.frame_time_for_metric
             else:
-                print('No attr \'solver.outputs.frame_index_for_metric\'. Set default - last')
-                solver_cfg.outputs.field_outputs = 'last'
+                print('No attr \'solver.outputs.frame_time_for_metric\'. Set default - [0., 1.] second')
+                solver_cfg.outputs.field_outputs = [0., 1.]
 
         else:
             print('No attr \'solver.outputs\'. Exit')

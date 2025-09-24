@@ -19,6 +19,7 @@ geometry:
   assymetry_1st_layer: [0, 1]
   padding: 0.5
   arc_offset: [-1, 1]
+  thk: 0.5
 material:
   name: "SS"
   EM: 233000.0
@@ -35,7 +36,7 @@ solver:
     field_outputs: ["S", "U", "LE"]
     time_interval: 0.025
     history_outputs: []
-    frame_index_for_metric: last
+    frame_time_for_metric: [0.0, 0.1, 0.2]
 hydra:
   run:
     dir: .

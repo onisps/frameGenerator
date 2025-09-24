@@ -70,28 +70,29 @@ def _to_plain(obj: Any) -> Any:
 
 
 def connector_console(
-    frame_dia: float = 29.0,
-    frame_length: float = 30.0,
+    geometry_cfg: Union[Dict[str, Any], SimpleNamespace, None] = None,
+    frame_lenght: float = 30.0,
     material_model: str = "linear",
     material_prop: Union[Dict[str, Any], SimpleNamespace, None] = None,
     solver_cfg: Union[Dict[str, Any], SimpleNamespace, None] = None,
-    project_root: str = None,
+    solver_path: str = None,
     abaqus_cmd: str = None,
     script_relpath: str = "utils/abq_connector.py",
     json_path: str = None,
+    project_root: str = None,
 ) -> int:
     """
     Запускает Abaqus/CAE в noGUI-режиме, передавая параметры в abq_connector.py через JSON.
     Блокирующий вызов (ждёт окончания расчёта). Возвращает код возврата процесса (0 = успех).
 
     Параметры:
-      - frame_dia, material_model, material_prop, solver_cfg — как в abq_connector.connector(...).
+      - geometry_cfg, material_prop, solver_cfg — словари с параметрами геометрии, свойств материала, настройками солвера.
       - project_root: корень проекта (где лежит utils/abq_connector.py). По умолчанию — текущая папка.
-      - abaqus_cmd: путь/имя команды Abaqus (например, "/opt/abaqus/Commands/abaqus"); по умолчанию "abaqus".
+      - solver_path: путь/имя команды Abaqus (например, "/opt/abaqus/Commands/abaqus"); по умолчанию "abaqus".
       - script_relpath: относительный путь к скрипту (по умолчанию "utils/abq_connector.py").
       - json_path: куда сохранить JSON; если не задано — создаётся временный файл в project_root.
     """
-    project_root = project_root or os.getcwd()
+    solver_path = solver_path or os.getcwd()
     abaqus_cmd = abaqus_cmd or (
         (getattr(solver_cfg, "abaqus_cmd", None) if isinstance(solver_cfg, SimpleNamespace) else None)
         or (solver_cfg or {}).get("abaqus_cmd") if isinstance(solver_cfg, dict) else None
@@ -99,8 +100,8 @@ def connector_console(
 
     # Сериализуем параметры
     payload = {
-        "frame_dia": float(frame_dia),
-        "frame_length": float(frame_length),
+        "geometry_cfg": _to_plain(geometry_cfg),
+        "frame_lenght": float(frame_lenght),
         "material_model": str(material_model),
         "material_prop": _to_plain(material_prop or {}),
         "solver_cfg": _to_plain(solver_cfg or {}),
@@ -108,20 +109,20 @@ def connector_console(
 
     # Путь к JSON
     if json_path is None:
-        tmpdir = tempfile.mkdtemp(prefix="abq_params_", dir=project_root)
+        tmpdir = tempfile.mkdtemp(prefix="abq_params_", dir=solver_path)
         json_path = os.path.join(tmpdir, "params.json")
     os.makedirs(os.path.dirname(json_path), exist_ok=True)
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
     # Путь к вашему скрипту abq_connector.py
-    script_path = os.path.join(project_root, script_relpath)
+    script_path = os.path.join(solver_path, script_relpath)
     if not os.path.isfile(script_path):
         raise FileNotFoundError(f"Не найден скрипт Abaqus: {script_path}")
 
     # Сформируем команду; паттерн: abaqus cae noGUI=<script> -- <params.json>
     # На *nix корректно с 'cd &&'; на Windows используйте аналогично, либо задайте абсолютные пути.
-    os.chdir(project_root)
+    os.chdir(solver_path)
     cmd = f'{abaqus_cmd} cae noGUI="{script_path}" -- "{json_path}"'
 
     print("-------------------------------------------------------")
@@ -133,4 +134,5 @@ def connector_console(
         print(f"[connector_console] Abaqus exited with code {rc}")
     else:
         print("[connector_console] Abaqus run completed successfully.")
+    os.chdir(project_root)
     return rc
