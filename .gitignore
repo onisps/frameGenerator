@@ -1,0 +1,6 @@
+abaqusWF
+results
+geoms
+*.log
+env_freeze.txt
+nohup.out

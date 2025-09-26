@@ -6,6 +6,8 @@ import datetime
 import glob
 import getpass, math
 import numpy as np
+import pandas as pd
+from openpyxl import load_workbook
 from typing import Union, Dict, Any
 
 import numpy as np
@@ -49,10 +51,10 @@ def run_solver(
            f'inp={solver_cfg.job_name_prefix} '
            f'cpus={solver_cfg.cpus} mp_mode=threads ask_delete=OFF')
 
-    print("-------------------------------------------------------")
-    print("Running the following command:")
-    print(cmd)
-    print("-------------------------------------------------------")
+    # print("-------------------------------------------------------")
+    # print("Running the following command:")
+    # print(cmd)
+    # print("-------------------------------------------------------")
 
     subprocess.run(
         cmd,
@@ -75,11 +77,13 @@ def run_solver(
                     if proc.info['name'] == 'pre' and proc.info['username'] == current_user:
                         os.system(f'pkill -n -9 pre')
                         message = 'ABAQUS terminated with error in pre'
-                        return message, 0
+                        os.chdir(prev_path)
+                        return message, 1
                     if proc.info['name'] == 'package' and proc.info['username'] == current_user:
                         os.system(f'pkill -n -9 package')
                         message = 'ABAQUS terminated with error in package'
-                        return message, 0
+                        os.chdir(prev_path)
+                        return message, 1
                 checked = True
             if m < TIMEOUT_MIN:
                 for proc in psu.process_iter(['name', 'username']):
@@ -101,6 +105,7 @@ def run_solver(
                 os.system('pkill -n -9 standard')
                 message = 'ABAQUS terminated due time'
                 _, _time = _get_info_about_solving_process()
+                os.chdir(prev_path)
                 return message, _time
     return 'ok', 1.0
 
@@ -112,16 +117,18 @@ def parce_results(
 ):
     project_root = solver_cfg.work_root or os.getcwd()
     prev_path = os.getcwd()
+    # print('Previous path: ',  prev_path)
+    # print('Project path: ',  project_root)
     os.chdir(project_root)
 
     cmd = (f'{abaqus_cmd} cae '
            f'noGUI={os.path.join(prev_path, "utils", "abq_parse_results.py")} -- {json_path}'
            )
-
-    print("-------------------------------------------------------")
-    print("Running the following command:")
-    print(cmd)
-    print("-------------------------------------------------------")
+    #
+    # print("-------------------------------------------------------")
+    # print("Running the following command:")
+    # print(cmd)
+    # print("-------------------------------------------------------")
 
     subprocess.run(
         cmd,
@@ -129,10 +136,15 @@ def parce_results(
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
     )
+    os.chdir(prev_path)
 
 def process_results(
-        cfg: Union[SimpleNamespace, dict] = None,
-        work_path: str = None
+        geometry_cfg: Union[SimpleNamespace, dict] = None,
+        solver_cfg: Union[SimpleNamespace, dict] = None,
+        work_path: str = None,
+        wbResults: Any= None,
+        filename: Any= None,
+        sheet_short: Any= None,
 ):
     def _find_element_in_array_by_float(str_array: [str] = None, mask: Union[float, int, str] = None):
         out = []
@@ -147,24 +159,65 @@ def process_results(
         else:
             return out
 
-    res_path = os.path.join(work_path, cfg.results_root, cfg.job_name_prefix)
+    res_path = os.path.join(work_path, solver_cfg.results_root, solver_cfg.job_name_prefix)
     list_of_stress = glob.glob(os.path.join(res_path,'S_Mises*.csv'))
     list_of_reaction_force = glob.glob(os.path.join(res_path,'RF*.csv'))
     list_of_radial_displacement = glob.glob(os.path.join(res_path,'U1_frame*.csv'))
 
-    analizing_frames = cfg.outputs.frame_time_for_metric
+    analizing_frames = solver_cfg.outputs.frame_time_for_metric
 
+
+    data_out = dict()
+    data_out.update(
+            geometry_cfg
+    )
     for time_frame in analizing_frames:
-
+        max_s_mises = "None"
+        data_rf = "None"
+        max_deformation = "None"
         actual_file_s = _find_element_in_array_by_float(list_of_stress,time_frame)
         actual_file_rf = _find_element_in_array_by_float(list_of_reaction_force,time_frame)
         actual_file_u = _find_element_in_array_by_float(list_of_radial_displacement,time_frame)
+        if actual_file_s != []:
+            max_s_mises = np.max(np.genfromtxt(actual_file_s, delimiter=',')[1:,2])
+            data_rf = np.genfromtxt(actual_file_rf, delimiter=',')[1,3]
+            max_deformation = geometry_cfg['diameter']/2 + 2*np.max(np.genfromtxt(actual_file_u, delimiter=',')[1:,-1])
+        data_out.update({
+            f'S_mises_{time_frame}': max_s_mises,
+            f'RF_{time_frame}': data_rf,
+            f'Diameter_{time_frame}':max_deformation
+        })
+        # print(f'Data from {time_frame} time frame')
+        # print(max_s_mises)
+        # print(data_rf)
+        # print(max_deformation)
 
-        max_s_mises = np.max(np.genfromtxt(actual_file_s, delimiter=',')[1:,2])
-        data_rf = np.genfromtxt(actual_file_rf, delimiter=',')[1,:-1]
-        max_deformation = np.max(np.genfromtxt(actual_file_u, delimiter=',')[1:,-1])
 
-        print(max_s_mises)
-        print(data_rf)
-        print(max_deformation)
+    max_s_mises = np.max(np.genfromtxt(list_of_stress[-1], delimiter=',')[1:, 2])
+    data_rf = np.genfromtxt(list_of_reaction_force[-1], delimiter=',')[1, 3]
+    last_time = np.genfromtxt(os.path.join(res_path,'last_time_step.csv'), delimiter=',')[1]
+    max_deformation = (geometry_cfg['diameter']
+                       + 2*np.max(np.genfromtxt(list_of_radial_displacement[-1], delimiter=',')[1:, -1]))
+    data_out.update({
+        'last time': last_time,
+        'S_mises_last': max_s_mises,
+        'RF_last': data_rf,
+        'Diameter_last': max_deformation
+    })
+    # print(f'Data from last time frame')
+    # print(max_s_mises)
+    # print(data_rf)
+    # print(max_deformation)
+    # print('deform min: ', np.min(np.genfromtxt(list_of_radial_displacement[-1], delimiter=',')[1:, -1]))
+    # print('deform max: ', np.max(np.genfromtxt(list_of_radial_displacement[-1], delimiter=',')[1:, -1]))
 
+    print(f' ** dict:\n{data_out}')
+    # 1) Read the header row (row 1) as a list of header names
+    headers = [cell.value for cell in next(sheet_short.iter_rows(min_row=1, max_row=1))]
+
+    # 2) Build a row in exactly that order (use None for any missing keys)
+    row = [data_out.get(h, None) for h in headers]
+
+    # 3) Append the row
+    sheet_short.append(row)
+    wbResults.save(filename)

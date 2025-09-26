@@ -1,3 +1,5 @@
+# -*- utf-8 -*-
+
 import os, sys
 import math
 import json
@@ -5,6 +7,9 @@ import json
 from odbAccess import openOdb
 
 SYS_AGREEMENT_ERROR_BY_TIME = 0.01
+
+if sys.version_info.major >=3:
+    xrange = range
 
 try:
     from types import SimpleNamespace  # type: ignore
@@ -114,9 +119,172 @@ def _collect_U1_cyl(frame, datum, inst_name):
         if not v.instance or v.instance.name != inst_name:
             continue
         d = v.data
-        u1 = d[1] if len(d) > 1 else ''
+        u1 = d[0] if len(d) > 1 else ''
         out.append((v.nodeLabel, u1))
     return out
+
+def _series(history_region, key):
+    """
+    Extract a time series from an assembly-level history region.
+
+    Parameters
+    ----------
+    history_region : HistoryRegion
+        The 'Assembly ASSEMBLY' history region from an ODB step.
+    key : str
+        History output key (e.g., 'ALLIE', 'ALLKE', 'ALLAE', 'ALLWK').
+
+    Returns
+    -------
+    (list[float], list[float])
+        Tuple (times, values). Returns ([], []) if the key is missing or empty.
+    """
+    if key not in history_region.historyOutputs:
+        return [], []
+    data = history_region.historyOutputs[key].data or []
+    if not data:
+        return [], []
+    t = [float(tv[0]) for tv in data]
+    v = [float(tv[1]) for tv in data]
+    return t, v
+
+def _nearest_indices(query_t, src_t):
+    """
+    Map each query time to the nearest index in a monotone source time array.
+
+    This is a single-pass two-pointer merge with O(N+M) complexity,
+    which is efficient for up to ~10k frames.
+
+    Parameters
+    ----------
+    query_t : list[float]
+        Monotone non-decreasing query times (e.g., frame.frameValue).
+    src_t : list[float]
+        Monotone non-decreasing source times from a history output.
+
+    Returns
+    -------
+    list[int]
+        For each query time, the index in src_t of the nearest time (ties resolved to the right).
+        Returns a zero-filled list if src_t is empty.
+    """
+    n, m = len(query_t), len(src_t)
+    idx = [0] * n
+    if m == 0 or n == 0:
+        return idx
+    j = 0
+    for i in xrange(n):
+        tq = query_t[i]
+        while (j + 1) < m and abs(src_t[j + 1] - tq) <= abs(src_t[j] - tq):
+            j += 1
+        idx[i] = j
+    return idx
+
+def _safe_div(a, b, eps=1e-16):
+    """
+    Numerically safe division a/b with sign-preserving epsilon.
+
+    Parameters
+    ----------
+    a : float
+    b : float
+    eps : float
+        Epsilon used when |b| is too small.
+
+    Returns
+    -------
+    float
+        a / b if |b| > eps, otherwise a / sign_preserving_eps.
+    """
+    if abs(b) > eps:
+        return a / b
+    return a / (eps if b >= 0.0 else -eps)
+
+def last_stable_frame_fast(frames, step,
+                           tauK=0.05, tauA=0.05, tauDelta=0.2):
+    """
+    Pick the last stable frame based on energy criteria using O(N+M) time matching.
+
+    Criteria per frame f (quasi-static intent):
+      - RK = ALLKE/ALLIE <= tauK  (small kinetic energy)
+      - RA = ALLAE/ALLIE <= tauA  (small artificial energy; 0 if ALLAE missing)
+      - Ebal = |ALLWK - (ALLIE+ALLKE+ALLAE+ALLVD+ALLCD)| / max(|ALLWK|, eps) <= tauE
+      - Smoothness: dI = |delta(ALLIE)| / max(1, |ALLIE|) <= tauDelta
+
+    The function scans frames from the end to achieve early exit on the first stable frame.
+    If no frame satisfies thresholds, it returns the frame with minimal aggregated violation.
+
+    Parameters
+    ----------
+    frames : list[Frame]
+        Frames of the target step (e.g., step.frames).
+    step : OdbStep
+        The step object owning `frames` (to access 'Assembly ASSEMBLY' histories).
+    tauK : float
+        Threshold for RK.
+    tauA : float
+        Threshold for RA.
+    tauE : float
+        Threshold for Ebal.
+    tauDelta : float
+        Threshold for the relative increment of ALLIE.
+
+    Returns
+    -------
+    (Frame, int)
+        The selected frame object and its index within `frames`.
+        If assembly histories are missing, returns the last frame by default.
+    """
+    if not frames:
+        return None, -1
+
+    try:
+        hr = step.historyRegions['Assembly ASSEMBLY']
+    except Exception:
+        return frames[-1], len(frames) - 1
+
+    tI, I = _series(hr, 'ALLIE')
+    tK, K = _series(hr, 'ALLKE')
+    tA, A = _series(hr, 'ALLAE')
+    tW, W = _series(hr, 'ALLWK')
+
+    if not (tI and tK and tW):
+        return frames[-1], len(frames) - 1
+
+    Ft = [fr.frameValue for fr in frames]
+
+    iI = _nearest_indices(Ft, tI)
+    iK = _nearest_indices(Ft, tK)
+    iW = _nearest_indices(Ft, tW)
+    iA = _nearest_indices(Ft, tA) if tA else []
+
+    best_idx, best_score = None, 1e30
+
+    for idx in xrange(len(frames) - 1, -1, -1):
+        Ii = I[iI[idx]]
+        Ki = K[iK[idx]]
+        Ai = A[iA[idx]] if tA else 0.0
+
+        RK = abs(_safe_div(Ki, Ii))
+        RA = abs(_safe_div(Ai, Ii)) if tA else 0.0
+
+        if idx > 0:
+            prevI = I[iI[idx - 1]]
+            dI = abs(Ii - prevI) / max(1.0, abs(Ii))
+        else:
+            dI = 0.0
+
+        ok = (RK <= tauK) and (RA <= tauA) and (dI <= tauDelta)
+        if ok:
+            return frames[idx], idx  # early exit: last stable
+
+        score = (max(RK - tauK, 0.0) +
+                 max(RA - tauA, 0.0) +
+                 max(dI - tauDelta, 0.0))
+        if score < best_score:
+            best_score, best_idx = score, idx
+
+    return frames[best_idx], best_idx
 
 def parce_results(
     solver_cfg
@@ -141,12 +309,16 @@ def parce_results(
 
     step = odb.steps[str(step_name)]
 
-    # build cylindrical datum as in the model (origin, point1=(1,0,0), point2=(0,1,0), axis Z) :contentReference[oaicite:9]{index=9}
+    # build cylindrical datum as in the model (origin, point1=(1,0,0), point2=(0,1,0), axis Z)
     cyl_datum = asm.datumCsyses[asm.datumCsyses.keys()[-1]]
 
     # target times
     # targets = [0.1, 0.75, 1.0]
     targets = solver_cfg.outputs.frame_time_for_metric
+
+    frame_last, idx_last = last_stable_frame_fast(step.frames, step, tauK=0.05, tauA=0.05, tauDelta=0.2)
+
+    print(' *-* Found last frame: ', step.frames[idx_last].frameValue)
 
     for tt in targets:
         fr, idx, t_act = _nearest_frame(step, tt)
@@ -171,13 +343,14 @@ def parce_results(
         rf = _sum_reaction_forces(fr, 'BALLOON')
         if rf is not None:
             sx, sy, sz, mag, n = rf
+            print(rf)
             _write_csv(os.path.join(out_dir, "RF_balloon_SUM_t%.2f.csv" % tt),
                       ['sum_RFx','sum_RFy','sum_RFz','resultant','n_nodes'],
                       [(sx, sy, sz, mag, n)])
         else:
             sys.stderr.write("INFO: RF field not present at t=%.2f; skip RF sum.\n" % tt)
 
-        # 3) U2 in cylindrical CS on frame
+        # 3) U1 in cylindrical CS on frame
         u_rows = []
         if cyl_datum is not None:
             u_rows = _collect_U1_cyl(fr, cyl_datum, 'FRAME')
@@ -190,6 +363,26 @@ def parce_results(
 
         sys.stdout.write("OK: exported t_target=%.2f (frame idx=%d, t_actual=%.6f)\n" % (tt, idx, t_act))
 
+
+    s_rows = _collect_S_mises(frame_last, 'FRAME')
+    _write_csv(os.path.join(out_dir, "S_Mises_frame_t_last.csv"),
+               ['elementLabel', 'ipIndex', 'Mises'],
+               s_rows)
+    rf = _sum_reaction_forces(frame_last, 'BALLOON')
+
+    sx, sy, sz, mag, n = rf
+    print(rf)
+    _write_csv(os.path.join(out_dir, "RF_balloon_SUM_t_last.csv"),
+               ['sum_RFx', 'sum_RFy', 'sum_RFz', 'resultant', 'n_nodes'],
+               [(sx, sy, sz, mag, n)])
+
+    u_rows = _collect_U1_cyl(step.frames[idx_last], cyl_datum, 'FRAME')
+    _write_csv(os.path.join(out_dir, "U1_frame_cyl_t_last.csv"),
+               ['nodeLabel', 'U1_cyl'],
+               u_rows)
+
+    _write_csv(os.path.join(out_dir, "last_time_step.csv"),
+               ['last_time',], [(frame_last.frameValue,)])
     odb.close()
 
 if __name__ == "__main__":

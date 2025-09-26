@@ -101,7 +101,7 @@ def make_plane_pointclouds(frame_rad, frame_length, repeats,
     # Rotate by +2π/repeats CCW
     phi = 2.0 * math.pi / float(repeats)
     rot_pts = [_rotate_z(p, phi) for p in base_pts]
-    print(base_pts)
+    # print(base_pts)
     return (base_pts, rot_pts)
 
 
@@ -314,11 +314,11 @@ def connector(
     part2.Set(name='set-no-rotation', faces=part2.faces.findAt(coordinates=(coords_xy + coords_rotated)))
 
     # mdb.saveAs('a_compression.cae')
-
-    print('surf all:', surfaces_all)
-    print('surf out:', surfaces_outer)
-    print('surf in:', surfaces_inner)
-    print('surf sides:', surface_fixed_u2)
+    #
+    # print('surf all:', surfaces_all)
+    # print('surf out:', surfaces_outer)
+    # print('surf in:', surfaces_inner)
+    # print('surf sides:', surface_fixed_u2)
 
     surfaces_self_contact = part2.SurfaceByBoolean(
         name='self-contact',
@@ -377,7 +377,7 @@ def connector(
                      timePeriod=solver_cfg.step_time, timeIncrementationMethod=AUTOMATIC,
                      maxNumInc=10000,
                      initialInc=(0.01 if 0.01<solver_cfg.outputs.time_interval else solver_cfg.outputs.time_interval),
-                     minInc=1E-10,
+                     minInc=1E-8,
                      maxInc=0.1,
                      nlgeom=ON,
                      stabilizationMethod=DISSIPATED_ENERGY_FRACTION,
@@ -404,7 +404,19 @@ def connector(
                              position=INTEGRATION_POINTS,
                              variables=list([str(v) for v in solver_cfg.outputs.field_outputs])
                              )
-
+    model.HistoryOutputRequest(
+        name='History-Output-stable_check',
+        createStepName=str(solver_cfg.step_name),
+        variables= (
+                'ALLWK',  # external work
+                'ALLIE',  # internal energy
+                'ALLKE',  # kinetic energy
+                'ALLAE',  # artificial energy (if stabilization/penalty present)
+            ),
+        region=MODEL,        # whole-assembly history region
+        timeInterval=float(solver_cfg.outputs.time_interval),         # every increment
+        timeMarks=ON         # write time marks
+    )
     ## Boundary condition
     # create Amplitude
     amp_name = 'Ampl-compress'
@@ -493,6 +505,10 @@ def connector(
         # )
 
     ## Job
+    # delete default field output with printing every step
+    del model.fieldOutputRequests['F-Output-1']
+    # del model.historyOutputRequests['H-Output-1']
+
     job = mdb.Job(
         name=job_name,
         model='Compress_frame',
@@ -501,6 +517,7 @@ def connector(
         multiprocessingMode=THREADS,
         type=ANALYSIS
     )
+
     job.writeInput()
     # Save abaqus cae
     mdb.saveAs(job_name+'.cae')

@@ -2,7 +2,7 @@ paths:
   work_root: "abaqusWF"
   results_root: "results"
 problem:
-  parameters: ['h1', 'h2', 'h3', 'h2_3rd_layer', 'cell_height_1st_layer', 'assymetry_1st_layer', 'arc_offset']
+  parameters: ['h1', 'h2', 'h3', 'h2_3rd_layer', 'cell_height_1st_layer', 'assymetry_1st_layer']
   objectives: ['']
 geometry:
   diameter: 26.0
@@ -18,7 +18,7 @@ geometry:
   fillet_c: 0
   assymetry_1st_layer: [0, 1]
   padding: 0.5
-  arc_offset: [-1, 1]
+  arc_offset: 0
   thk: 0.5
 material:
   name: "SS"
@@ -33,10 +33,10 @@ solver:
   step_time: 1
   cpus: 8
   outputs:
-    field_outputs: ["S", "U", "LE"]
+    field_outputs: ["S", "U", "LE", "RF"]
     time_interval: 0.025
     history_outputs: []
-    frame_time_for_metric: [0.0, 0.1, 0.2]
+    frame_time_for_metric: [0.75, 1.0]
 hydra:
   run:
     dir: .

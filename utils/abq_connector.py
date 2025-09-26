@@ -1,5 +1,5 @@
 # utils/compute_utils_ext.py
-import os
+import os, subprocess
 import json
 import tempfile
 from typing import Union, Dict, Any
@@ -13,7 +13,7 @@ except Exception:  # pragma: no cover
             for k, v in kwargs.items():
                 setattr(self, k, v)
 
-def _to_plain(obj: Any) -> Any:
+def _to_plain(obj: Any):
     """
     Рекурсивно приводит структуру к JSON-совместимой:
     - OmegaConf (DictConfig/ListConfig) → dict/list через OmegaConf.to_container(resolve=True)
@@ -80,7 +80,7 @@ def connector_console(
     script_relpath: str = "utils/abq_connector.py",
     json_path: str = None,
     project_root: str = None,
-) -> int:
+):
     """
     Запускает Abaqus/CAE в noGUI-режиме, передавая параметры в abq_connector.py через JSON.
     Блокирующий вызов (ждёт окончания расчёта). Возвращает код возврата процесса (0 = успех).
@@ -124,15 +124,18 @@ def connector_console(
     # На *nix корректно с 'cd &&'; на Windows используйте аналогично, либо задайте абсолютные пути.
     os.chdir(solver_path)
     cmd = f'{abaqus_cmd} cae noGUI="{script_path}" -- "{json_path}"'
+    #
+    # print("-------------------------------------------------------")
+    # print("Running the following command:")
+    # print(cmd)
+    # print("-------------------------------------------------------")
 
-    print("-------------------------------------------------------")
-    print("Running the following command:")
-    print(cmd)
-    print("-------------------------------------------------------")
-    rc = os.system(cmd)
-    if rc != 0:
-        print(f"[connector_console] Abaqus exited with code {rc}")
-    else:
-        print("[connector_console] Abaqus run completed successfully.")
+
+    subprocess.run(
+        cmd,
+        shell=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+
     os.chdir(project_root)
-    return rc
