@@ -145,6 +145,8 @@ def process_results(
         wbResults: Any= None,
         filename: Any= None,
         sheet_short: Any= None,
+        begining_time: Any = None,
+        fea_time: Any = None
 ):
     def _find_element_in_array_by_float(str_array: [str] = None, mask: Union[float, int, str] = None):
         out = []
@@ -158,7 +160,12 @@ def process_results(
             return out[0]
         else:
             return out
-
+    def _read_from_txt(path: str = None):
+        if os.path.exists(path):
+            _data = np.genfromtxt(path, delimiter=',')
+            return _data
+        else:
+            return 'None'
     res_path = os.path.join(work_path, solver_cfg.results_root, solver_cfg.job_name_prefix)
     list_of_stress = glob.glob(os.path.join(res_path,'S_Mises*.csv'))
     list_of_reaction_force = glob.glob(os.path.join(res_path,'RF*.csv'))
@@ -181,7 +188,7 @@ def process_results(
         if actual_file_s != []:
             max_s_mises = np.max(np.genfromtxt(actual_file_s, delimiter=',')[1:,2])
             data_rf = np.genfromtxt(actual_file_rf, delimiter=',')[1,3]
-            max_deformation = geometry_cfg['diameter']/2 + 2*np.max(np.genfromtxt(actual_file_u, delimiter=',')[1:,-1])
+            max_deformation = geometry_cfg['diameter'] + 2*np.max(np.genfromtxt(actual_file_u, delimiter=',')[1:,-1])
         data_out.update({
             f'S_mises_{time_frame}': max_s_mises,
             f'RF_{time_frame}': data_rf,
@@ -192,10 +199,15 @@ def process_results(
         # print(data_rf)
         # print(max_deformation)
 
+    max_s_mises = np.max(_read_from_txt(list_of_stress[-1])[1:, 2])
+    data_rf = _read_from_txt(list_of_reaction_force[-1])[1,3]
 
-    max_s_mises = np.max(np.genfromtxt(list_of_stress[-1], delimiter=',')[1:, 2])
-    data_rf = np.genfromtxt(list_of_reaction_force[-1], delimiter=',')[1, 3]
-    last_time = np.genfromtxt(os.path.join(res_path,'last_time_step.csv'), delimiter=',')[1]
+    _path = os.path.join(res_path,'last_time_step.csv')
+    if os.path.exists(_path):
+        last_time = np.genfromtxt(_path, delimiter=',')[1]
+    else:
+        return
+
     max_deformation = (geometry_cfg['diameter']
                        + 2*np.max(np.genfromtxt(list_of_radial_displacement[-1], delimiter=',')[1:, -1]))
     data_out.update({
@@ -204,6 +216,13 @@ def process_results(
         'RF_last': data_rf,
         'Diameter_last': max_deformation
     })
+
+    data_out.update(
+        {
+                f'Time per design': datetime.datetime.now() - begining_time,
+                f'FEA time': fea_time,
+        }
+    )
     # print(f'Data from last time frame')
     # print(max_s_mises)
     # print(data_rf)

@@ -24,7 +24,7 @@ from utils.abq_solving_utils import run_solver, parce_results, process_results
 config_name = 'config_ss'
 globalPath = str(Path.cwd())
 round_decimals = 4
-random.seed(2)
+random.seed(1)
 
 now = str(datetime.datetime.now()).replace(' ', '_').replace(':', '-').split('.')[0]
 now = now[:-3]
@@ -74,6 +74,8 @@ def configure_xlsx(
                 f'S_mises_last': [],
                 f'RF_last': [],
                 f'Diameter_last': [],
+                f'Time per design': [],
+                f'FEA time': [],
             })
 
         writerRes = pd.ExcelWriter(str(outFileNameResult), engine='xlsxwriter')
@@ -105,15 +107,14 @@ def main(cfg: DictConfig):
                                                                os.path.join(globalPath,solver_cfg.results_root)
                                                                )
 
-
-    if os.path.exists(os.path.join(globalPath, solver_cfg.work_root, solver_cfg.results_root)):
-        shutil.rmtree(os.path.join(globalPath, solver_cfg.work_root, solver_cfg.results_root))
-
     first_done = False
     attempts_done = 0
     # while not first_done:
     for _idx in range(10000):
         print(f'******** currently: {_idx}')
+        t_begin = datetime.datetime.now()
+        if os.path.exists(os.path.join(globalPath, solver_cfg.work_root, solver_cfg.results_root)):
+            shutil.rmtree(os.path.join(globalPath, solver_cfg.work_root, solver_cfg.results_root))
         # prepare set of geometric values
         curr_geometry_cfg = geometry_cfg.__dict__.copy()
         for key in curr_geometry_cfg.keys():
@@ -152,22 +153,26 @@ def main(cfg: DictConfig):
 
         t0 = datetime.datetime.now()
         message, last_frame_time = run_solver(solver_cfg, solver_cfg.work_root, 'abaqus', globalPath)
+        fea_time = datetime.datetime.now() - t0
         print(f'[solver] get message: {message}. Last frame step: {last_frame_time}. '
-              f'Costed time: {datetime.datetime.now() - t0}')
+              f'Costed time: {fea_time}')
 
         parce_results(solver_cfg,'abaqus', os.path.join(globalPath, solver_cfg.work_root,'config.json'))
 
-        process_results(
-            geometry_cfg=curr_geometry_cfg,
-            solver_cfg=solver_cfg,
-            work_path=os.path.join(globalPath, solver_cfg.work_root),
-            wbResults=wbResults,
-            filename=outFileNameResult,
-            sheet_short=sheet_short,
-            # sheet_desc=sheet_desc
-        )
-        first_done = True
-
+        try:
+            process_results(
+                geometry_cfg=curr_geometry_cfg,
+                solver_cfg=solver_cfg,
+                work_path=os.path.join(globalPath, solver_cfg.work_root),
+                wbResults=wbResults,
+                filename=outFileNameResult,
+                sheet_short=sheet_short,
+                begining_time=t_begin,
+                fea_time=fea_time
+            )
+        except:
+            pass
+            first_done = True
 
 if __name__ == "__main__":
     main()
